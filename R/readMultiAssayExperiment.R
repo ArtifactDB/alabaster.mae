@@ -36,8 +36,71 @@
 #' loadMultiAssayExperiment(info, tmp)
 #' 
 #' @export
+#' @aliases loadMultiAssayExperiment
 #' @import alabaster.base alabaster.se
 #' @importFrom MultiAssayExperiment MultiAssayExperiment
+readMultiAssayExperiment <- function(path, ...) {
+    # Constructing the experiments.
+    edir <- file.path(path, "experiments")
+    if (file.exists(edir)) {
+        exp.names <- fromJSON(file.path(path, "names.json"))
+        experiments <- list()
+
+        for (e in seq_along(exp.names)) {
+            ex <- readObject(file.path(edir, e-1L), ...)
+            if (is.null(colnames(ex))) {
+                warning("generating non-NULL column names for experiment ", e)
+                colnames(ex) <- seq_len(ncol(ex))
+            } else if (anyDuplicated(colnames(ex))) {
+                warning("generating unique column names for experiment ", e)
+                colnames(ex) <- make.unique(colnames(ex))
+            }
+            experiments[[e]] <- e
+        }
+
+        names(experiments) <- exp.names
+    }
+
+    # Obtaining the sample data.
+    sd <- readObject(file.path(path, "sample_data"), ...)
+    if (is.null(rownames(sd))) {
+        warning("generating non-NULL sample names for the sample data")
+        rownames(sd) <- seq_len(nrow(sd))
+    } else if (anyDuplicated(rownames(sd))) {
+        warning("generating unique sample names for the sample data")
+        rownames(sd) <- make.unique(rownames(sd))
+    }
+
+    # Constructing the sample mapping.
+    fhandle <- H5Fopen(file.path(path, "sample_map.h5"), "H5F_ACC_RDONLY")
+    on.exit(H5Fclose(fhandle))
+    ghandle <- H5Gopen(fhandle, "multi_sample_dataset")
+    on.exit(H5Gclose(fhandle), add=TRUE, after=FALSE)
+
+    all.primary <- list()
+    all.assay <- list()
+    all.colname <- list()
+
+    for (e in seq_along(experiments)) {
+        curex <- experiments[[e]]
+        ix <- h5_read_vector(ghandle, e-1L)
+        all.assay[[e]] <- rep(names(experiments)[e], ncol(curex))
+        all.colname[[e]] <- colnames(curex)
+        all.primary[[e]] <- rownames(sd)[ix + 1L]
+    }
+
+    sm <- DataFrame(primary=unlist(all.primary), assay=unlist(all.assay), colname=unlist(all.colname))
+
+    MultiAssayExperiment(experiments, colData=sd, sampleMap=sm) 
+}
+
+
+
+##################################
+######### OLD STUFF HERE #########
+##################################
+
+#' @export
 loadMultiAssayExperiment <- function(ds.info, project, experiments=NULL, BPPARAM=NULL, include.nested=TRUE) {
     # Choosing the experiments to load.
     all.experiments <- ds.info$dataset$experiments

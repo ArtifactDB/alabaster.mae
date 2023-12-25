@@ -1,19 +1,11 @@
-#' Stage a dataset
+#' Save a MultiAssayExperiment
 #'
-#' Save the metadata and annotations of a \linkS4class{MultiAssayExperiment} in a staging directory.
+#' Save a \linkS4class{MultiAssayExperiment} to its on-disk representation.
 #' 
 #' @param x A \linkS4class{MultiAssayExperiment} object or one of its subclasses.
-#' @inheritParams alabaster.base::stageObject
-#' @param meta.name String containing the name of the metadata file.
-#' @param sm.name String containing the prefix of the sample mapping file.
-#' @param sd.name String containing the prefix of the sample data file.
+#' @inheritParams alabaster.base::saveObject
 #'
-#' @return A named list containing the metadata for this dataset.
-#' The contents of \code{x} are saved into a \code{path} subdirectory inside \code{dir}.
-#'
-#' @details
-#' \code{meta.name} is only needed to set up the output \code{path}, for consistency with the \code{\link{stageObject}} contract.
-#' Callers should make sure to write the metadata to the same document by using \code{\link{.writeMetadata}} with \code{meta.only=TRUE}.
+#' @return The contents of \code{x} are saved into a \code{path}, and \code{NULL} is invisibly returned.
 #'
 #' @author Aaron Lun
 #' 
@@ -29,18 +21,99 @@
 #' library(MultiAssayExperiment)
 #' mae <- MultiAssayExperiment(list(gene=se))
 #'
-#' # Staging it:
+#' # Saving it:
 #' tmp <- tempfile()
-#' dir.create(tmp)
-#' stageObject(mae, tmp, "dataset")
+#' saveObject(mae, tmp)
 #' 
 #' @export
-#' @rdname stageMultiAssayExperiment
-#' @aliases stageObject,SampleMapFrame-method
+#' @name saveMultiAssayExperiment
+#' @aliases stageObject,MultiAssayExperiment-method
 #' @import methods alabaster.base alabaster.se
 #' @importFrom MultiAssayExperiment MultiAssayExperiment
 #' @importFrom MultiAssayExperiment colData sampleMap
 #' @importFrom S4Vectors DataFrame
+setMethod("saveObject", "MultiAssayExperiment", function(x, path, ...) {
+    dir.create(path, showWarnings=FALSE)
+    saveObjectFile(
+        path, 
+        "multi_sample_dataset", 
+        list(multi_sample_dataset=list(version="1.0"))
+    )
+
+    cur.exps <- experiments(x)
+    if (length(cur.exps)) {
+        if (anyDuplicated(names(cur.exps))) {
+            stop("experiment names should be unique")
+        }
+
+        edir <- file.path(path, "experiments")
+        dir.create(edir, showWarnings=FALSE)
+        write(toJSON(names(cur.exps)), file=file.path(edir, "names.json"))
+
+        for (e in seq_along(cur.exps)) {
+            cur.exp <- cur.exps[[e]]
+            if (anyDuplicated(colnames(cur.exp))) {
+                stop("column names of 'experiments(<", class(x)[1], ">)[[", e, "]]' should be unique")
+            }
+
+            ename <- as.character(e-1L)
+            tryCatch({
+                saveObject(cur.exp, file.path(edir, ename), ...)
+            }, error=function(e) {
+                stop("failed to stage 'experiments(<", class(x)[1], ">)[[", e, "]]'\n  - ", e$message)
+            })
+        }
+    }
+
+    sdata <- colData(x)
+    if (anyDuplicated(rownames(sd))) {
+        stop("rownames of 'colData(<", class(x)[1], ">)' should be unique")
+    }
+    tryCatch({
+        saveObject(sdata, file.path(dir, "sample_data"), ...)
+    }, error=function(e) {
+        stop("failed to stage 'colData(<", class(x)[1], ">)'\n  - ", e$message)
+    })
+
+    fhandle <- H5Fcreate(file.path(path, "sample_map.h5"), "H5F_ACC_TRUNC");
+    on.exit(H5Fclose(fhandle))
+    ghandle <- H5Gcreate(fhandle, "multi_sample_dataset")
+    on.exit(H5Gclose(ghandle), add=TRUE, after=FALSE)
+
+    map <- sampleMap(x)
+    for (e in seq_along(cur.exps)) {
+        keep <- map$assay == names(cur.exp)[e]
+        colnames <- map$colname[keep]
+        samples <- map$primary[keep]
+
+        if (anyDuplicated(samples)) {
+            stop("duplicated samples detected in 'sampleMap(<", class(x)[1], ">)'")
+        }
+        i <- match(rownames(sdata), samples)
+        if (anyNA(i)) {
+            stop("samples in 'colData(<", class(x)[1], ">)' are not present in 'sampleMap(<", class(x)[1], ">)'")
+        }
+
+        if (anyDuplicated(colnames)) {
+            stop("duplicated column names detected in 'sampleMap(<", class(x)[1], ">)'")
+        }
+        exp.colnames <- colnames(cur.exp[[e]])
+        j <- match(exp.colnames, colnames)
+        if (anyNA(j)) {
+            stop("column names in 'experiments(<", class(x)[1], ">)[[", e, "]]' are not present in 'sampleMap(<", class(x)[1], ">)'")
+        }
+
+        h5_write_vector(ghandle, as.character(e - 1L), (i - 1L)[j], type="H5_NATIVE_UINT32")
+    }
+
+    saveMetadata(x, metadata.path=file.path(path, "other_data"), mcols.path=NULL, ...)
+})
+
+##################################
+######### OLD STUFF HERE #########
+##################################
+
+#' @export
 setMethod("stageObject", "MultiAssayExperiment", function(x, dir, path, child=FALSE, sm.name="sample_mapping", sd.name="sample_data", meta.name="dataset.json") {
     dir.create(file.path(dir, path), showWarnings=FALSE)
 
