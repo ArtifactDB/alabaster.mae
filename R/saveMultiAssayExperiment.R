@@ -26,7 +26,7 @@
 #' saveObject(mae, tmp)
 #' 
 #' @export
-#' @name saveMultiAssayExperiment
+#' @rdname saveMultiAssayExperiment
 #' @aliases stageObject,MultiAssayExperiment-method
 #' @import methods alabaster.base alabaster.se
 #' @importFrom MultiAssayExperiment MultiAssayExperiment
@@ -68,7 +68,7 @@ setMethod("saveObject", "MultiAssayExperiment", function(x, path, ...) {
     }
 
     sdata <- colData(x)
-    if (anyDuplicated(rownames(sd))) {
+    if (anyDuplicated(rownames(sdata))) {
         stop("rownames of 'colData(<", class(x)[1], ">)' should be unique")
     }
     tryCatch({
