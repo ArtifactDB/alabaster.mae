@@ -32,6 +32,8 @@
 #' @importFrom MultiAssayExperiment MultiAssayExperiment
 #' @importFrom MultiAssayExperiment colData sampleMap
 #' @importFrom S4Vectors DataFrame
+#' @importFrom jsonlite toJSON
+#' @importFrom rhdf5 H5Fcreate H5Gcreate H5Fclose H5Gclose
 setMethod("saveObject", "MultiAssayExperiment", function(x, path, ...) {
     dir.create(path, showWarnings=FALSE)
     saveObjectFile(
@@ -70,7 +72,7 @@ setMethod("saveObject", "MultiAssayExperiment", function(x, path, ...) {
         stop("rownames of 'colData(<", class(x)[1], ">)' should be unique")
     }
     tryCatch({
-        saveObject(sdata, file.path(dir, "sample_data"), ...)
+        saveObject(sdata, file.path(path, "sample_data"), ...)
     }, error=function(e) {
         stop("failed to stage 'colData(<", class(x)[1], ">)'\n  - ", e$message)
     })
@@ -82,28 +84,28 @@ setMethod("saveObject", "MultiAssayExperiment", function(x, path, ...) {
 
     map <- sampleMap(x)
     for (e in seq_along(cur.exps)) {
-        keep <- map$assay == names(cur.exp)[e]
+        keep <- map$assay == names(cur.exps)[e]
         colnames <- map$colname[keep]
         samples <- map$primary[keep]
 
         if (anyDuplicated(samples)) {
             stop("duplicated samples detected in 'sampleMap(<", class(x)[1], ">)'")
         }
-        i <- match(rownames(sdata), samples)
+        i <- match(samples, rownames(sdata))
         if (anyNA(i)) {
-            stop("samples in 'colData(<", class(x)[1], ">)' are not present in 'sampleMap(<", class(x)[1], ">)'")
+            stop("samples in 'sampleMap(<", class(x)[1], ">)' are not present in 'colData(<", class(x)[1], ">)'")
         }
 
         if (anyDuplicated(colnames)) {
             stop("duplicated column names detected in 'sampleMap(<", class(x)[1], ">)'")
         }
-        exp.colnames <- colnames(cur.exp[[e]])
+        exp.colnames <- colnames(cur.exps[[e]])
         j <- match(exp.colnames, colnames)
         if (anyNA(j)) {
             stop("column names in 'experiments(<", class(x)[1], ">)[[", e, "]]' are not present in 'sampleMap(<", class(x)[1], ">)'")
         }
 
-        h5_write_vector(ghandle, as.character(e - 1L), (i - 1L)[j], type="H5_NATIVE_UINT32")
+        h5_write_vector(ghandle, as.character(e - 1L), (i - 1L)[j], type="H5T_NATIVE_UINT32")
     }
 
     saveMetadata(x, metadata.path=file.path(path, "other_data"), mcols.path=NULL, ...)

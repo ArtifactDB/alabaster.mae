@@ -39,11 +39,13 @@
 #' @aliases loadMultiAssayExperiment
 #' @import alabaster.base alabaster.se
 #' @importFrom MultiAssayExperiment MultiAssayExperiment
+#' @importFrom jsonlite fromJSON
+#' @importFrom rhdf5 H5Fopen H5Fclose H5Gopen H5Gclose
 readMultiAssayExperiment <- function(path, ...) {
     # Constructing the experiments.
     edir <- file.path(path, "experiments")
     if (file.exists(edir)) {
-        exp.names <- fromJSON(file.path(path, "names.json"))
+        exp.names <- fromJSON(file.path(edir, "names.json"))
         experiments <- list()
 
         for (e in seq_along(exp.names)) {
@@ -55,7 +57,7 @@ readMultiAssayExperiment <- function(path, ...) {
                 warning("generating unique column names for experiment ", e)
                 colnames(ex) <- make.unique(colnames(ex))
             }
-            experiments[[e]] <- e
+            experiments[[e]] <- ex
         }
 
         names(experiments) <- exp.names
@@ -75,7 +77,7 @@ readMultiAssayExperiment <- function(path, ...) {
     fhandle <- H5Fopen(file.path(path, "sample_map.h5"), "H5F_ACC_RDONLY")
     on.exit(H5Fclose(fhandle))
     ghandle <- H5Gopen(fhandle, "multi_sample_dataset")
-    on.exit(H5Gclose(fhandle), add=TRUE, after=FALSE)
+    on.exit(H5Gclose(ghandle), add=TRUE, after=FALSE)
 
     all.primary <- list()
     all.assay <- list()
@@ -83,18 +85,21 @@ readMultiAssayExperiment <- function(path, ...) {
 
     for (e in seq_along(experiments)) {
         curex <- experiments[[e]]
-        ix <- h5_read_vector(ghandle, e-1L)
+        ix <- h5_read_vector(ghandle, as.character(e-1L))
         all.assay[[e]] <- rep(names(experiments)[e], ncol(curex))
         all.colname[[e]] <- colnames(curex)
         all.primary[[e]] <- rownames(sd)[ix + 1L]
     }
 
-    sm <- DataFrame(primary=unlist(all.primary), assay=unlist(all.assay), colname=unlist(all.colname))
+    sm <- DataFrame(
+        primary=unlist(all.primary), 
+        assay=factor(unlist(all.assay)), 
+        colname=unlist(all.colname)
+    )
 
-    MultiAssayExperiment(experiments, colData=sd, sampleMap=sm) 
+    mae <- MultiAssayExperiment(experiments, colData=sd, sampleMap=sm) 
+    readMetadata(mae, metadata.path=file.path(path, "other_data"), mcols.path=NULL, ...)
 }
-
-
 
 ##################################
 ######### OLD STUFF HERE #########

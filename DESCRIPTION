@@ -15,7 +15,9 @@ Depends:
 Imports:
     methods,
     alabaster.se,
-    S4Vectors
+    S4Vectors,
+    jsonlite,
+    rhdf5
 Suggests:
     testthat,
     knitr,
